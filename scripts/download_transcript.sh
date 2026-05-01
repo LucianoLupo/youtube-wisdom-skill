@@ -1,19 +1,23 @@
 #!/usr/bin/env bash
 # Download YouTube transcript and metadata (no video file).
-# Usage: ./download_transcript.sh <youtube-url>
+# Usage: ./download_transcript.sh <youtube-url> [lang-code]
 #
 # Environment:
-#   YOUTUBE_WISDOM_DIR  Output directory (default: ~/Documents/Wisdom)
+#   YOUTUBE_WISDOM_DIR   Output directory (default: <repo>/wisdom)
+#   YOUTUBE_WISDOM_LANG  Subtitle language code (default: en). CLI arg wins if both set.
 
 set -euo pipefail
 
 if [[ -z "${1:-}" ]]; then
-    echo "Usage: $0 <youtube-url>"
+    echo "Usage: $0 <youtube-url> [lang-code]"
     exit 1
 fi
 
 URL="$1"
-OUTPUT_DIR="${YOUTUBE_WISDOM_DIR:-${HOME}/Documents/Wisdom}"
+LANG_CODE="${2:-${YOUTUBE_WISDOM_LANG:-en}}"
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+REPO_ROOT="$( cd "${SCRIPT_DIR}/.." && pwd )"
+OUTPUT_DIR="${YOUTUBE_WISDOM_DIR:-${REPO_ROOT}/wisdom}"
 
 # Extract video ID — handles standard, short, and embed URLs.
 VIDEO_ID=$(python3 -c "
@@ -47,7 +51,7 @@ if ! yt-dlp \
     --skip-download \
     --write-subs \
     --write-auto-subs \
-    --sub-langs "en.*,en" \
+    --sub-langs "${LANG_CODE}.*,${LANG_CODE}" \
     --sub-format "json3" \
     --restrict-filenames \
     --output "${VIDEO_DIR}/%(title)s" \
@@ -71,7 +75,7 @@ if [[ -z "$JSON3_FILE" ]]; then
 fi
 
 if [[ -z "$JSON3_FILE" || ! -f "$JSON3_FILE" ]]; then
-    echo "Error: No subtitle file found. The video may not have English captions available."
+    echo "Error: No subtitle file found. The video may not have '${LANG_CODE}' captions available."
     echo "Video directory: $VIDEO_DIR"
     exit 1
 fi
