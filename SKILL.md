@@ -14,7 +14,7 @@ Extract meaningful insights from YouTube videos by downloading transcripts and p
 
 ## Configuration
 
-- `YOUTUBE_WISDOM_DIR` — output directory (default: `~/Documents/Wisdom`).
+- `YOUTUBE_WISDOM_DIR` — output directory (default: `<repo>/wisdom/`, gitignored).
 - `YOUTUBE_WISDOM_LANG` — subtitle language code (default: `en`). Also accepted as a 2nd CLI arg, which takes precedence.
 
 ## Workflow

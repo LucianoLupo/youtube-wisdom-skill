@@ -39,7 +39,7 @@ Or any variation like:
 
 ## Configuration
 
-`YOUTUBE_WISDOM_DIR` — change where analyses are saved (default: `~/Documents/Wisdom`):
+`YOUTUBE_WISDOM_DIR` — change where analyses are saved (default: `<repo>/wisdom/`, gitignored):
 
 ```bash
 export YOUTUBE_WISDOM_DIR="$HOME/my-custom-wisdom-dir"

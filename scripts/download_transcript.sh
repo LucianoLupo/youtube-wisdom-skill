@@ -3,7 +3,7 @@
 # Usage: ./download_transcript.sh <youtube-url> [lang-code]
 #
 # Environment:
-#   YOUTUBE_WISDOM_DIR   Output directory (default: ~/Documents/Wisdom)
+#   YOUTUBE_WISDOM_DIR   Output directory (default: <repo>/wisdom)
 #   YOUTUBE_WISDOM_LANG  Subtitle language code (default: en). CLI arg wins if both set.
 
 set -euo pipefail
@@ -15,7 +15,9 @@ fi
 
 URL="$1"
 LANG_CODE="${2:-${YOUTUBE_WISDOM_LANG:-en}}"
-OUTPUT_DIR="${YOUTUBE_WISDOM_DIR:-${HOME}/Documents/Wisdom}"
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+REPO_ROOT="$( cd "${SCRIPT_DIR}/.." && pwd )"
+OUTPUT_DIR="${YOUTUBE_WISDOM_DIR:-${REPO_ROOT}/wisdom}"
 
 # Extract video ID — handles standard, short, and embed URLs.
 VIDEO_ID=$(python3 -c "
