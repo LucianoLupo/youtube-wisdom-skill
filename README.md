@@ -39,13 +39,19 @@ Or any variation like:
 
 ## Configuration
 
-Set the `YOUTUBE_WISDOM_DIR` environment variable to change where analyses are saved:
+`YOUTUBE_WISDOM_DIR` — change where analyses are saved (default: `~/Documents/Wisdom`):
 
 ```bash
 export YOUTUBE_WISDOM_DIR="$HOME/my-custom-wisdom-dir"
 ```
 
-Default: `~/Documents/Wisdom`
+`YOUTUBE_WISDOM_LANG` — subtitle language code to fetch (default: `en`). For Spanish videos, ask Claude to "extract wisdom from [URL] in Spanish" or set:
+
+```bash
+export YOUTUBE_WISDOM_LANG="es"
+```
+
+Common codes: `en`, `es`, `pt`, `fr`, `de`, `it`, `ja`, `ko`, `zh`. Regional variants like `es-419` or `en-US` are matched automatically.
 
 ## Output
 
@@ -70,7 +76,7 @@ The analysis includes:
 
 ## Limitations
 
-- Requires English captions (manual or auto-generated). Videos without English subtitles will fail with a clear error message.
+- Requires captions in the requested language (manual or auto-generated). Defaults to English; override per-video with a CLI arg or globally with `YOUTUBE_WISDOM_LANG`. Videos without captions in the requested language fail with a clear error message.
 - Age-restricted or members-only videos may require [yt-dlp authentication](https://github.com/yt-dlp/yt-dlp#authentication-with-netrc).
 - The notification script is macOS-only (automatically skipped on other platforms).
 

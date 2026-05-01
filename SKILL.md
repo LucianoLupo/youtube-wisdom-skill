@@ -14,17 +14,20 @@ Extract meaningful insights from YouTube videos by downloading transcripts and p
 
 ## Configuration
 
-Set `YOUTUBE_WISDOM_DIR` to customise the output directory (default: `~/Documents/Wisdom`).
+- `YOUTUBE_WISDOM_DIR` — output directory (default: `~/Documents/Wisdom`).
+- `YOUTUBE_WISDOM_LANG` — subtitle language code (default: `en`). Also accepted as a 2nd CLI arg, which takes precedence.
 
 ## Workflow
 
 ### Step 1: Download Transcript
 
 ```bash
-bash ~/.claude/skills/youtube-wisdom/scripts/download_transcript.sh <youtube-url>
+bash ~/.claude/skills/youtube-wisdom/scripts/download_transcript.sh <youtube-url> [lang-code]
 ```
 
 Creates: `$YOUTUBE_WISDOM_DIR/<video-id>/` with transcript and metadata.
+
+If the user mentions the video is in a non-English language (e.g. "this Spanish video"), pass the matching code (`es`, `pt`, `fr`, etc.) as the 2nd argument. Match the analysis output language to the source unless the user asks otherwise.
 
 ### Step 2: Read Transcript
 
