@@ -70,7 +70,7 @@ NON_TRANSCRIPT_SUB_TAGS = {"live_chat"}
 CACHE_ROOT = os.path.abspath(os.path.expanduser(
     os.environ.get("YOUTUBE_WISDOM_CACHE", "~/.cache/youtube-wisdom")))
 SKILL_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-WISDOM_ROOT = os.path.abspath(os.path.expanduser(
+WISDOM_ROOT = os.path.realpath(os.path.expanduser(
     os.environ.get("YOUTUBE_WISDOM_DIR") or os.path.join(SKILL_ROOT, "wisdom")))
 CLAUDE_ROOT = os.path.abspath(os.path.expanduser("~/.claude"))
 _VAULT = os.environ.get("YOUTUBE_WISDOM_VAULT")
@@ -193,7 +193,7 @@ def run_checked(cmd, what, timeout=None):
 
 
 def hms(seconds):
-    """MM:SS below one hour, H:MM:SS at or above. mmss(5400) == '90:00' was the source's bug."""
+    """MM:SS below one hour, H:MM:SS at or above, so 90 minutes renders as 1:30:00, not 90:00."""
     total = int(round(float(seconds)))
     h, rem = divmod(total, 3600)
     m, s = divmod(rem, 60)
@@ -307,7 +307,8 @@ def assert_cache_workdir(wd):
         die(f"refusing to use {real} as a work dir - {WISDOM_ROOT} is the durable output "
             f"dir. Cache artifacts live in {CACHE_ROOT}; only `install` may write into it.")
     if _is_within(real, CLAUDE_ROOT):
-        die(f"refusing to use {real} as a work dir - ~/.claude is version-controlled and pushed.")
+        die(f"refusing to use {real} as a work dir - ~/.claude holds agent configuration; "
+            f"keep cache artifacts out of it.")
     top = git_toplevel(real)
     if top:
         die(f"refusing to write cache artifacts inside a git work tree: {top}\n"
@@ -383,7 +384,7 @@ def find_video(wd):
 # --------------------------------------------------------------------- fetch
 
 def already_extracted(vid):
-    """Best-effort duplicate warning. Recursive: some analyses live at depth 3."""
+    """Best-effort duplicate warning. Recursive, so analyses filed in subfolders are found too."""
     if not vid or not os.path.isdir(WISDOM_ROOT):
         return []
     hits = []
@@ -429,6 +430,13 @@ def pick_sub_lang(info, fallback_priority):
     manual = list((info.get("subtitles") or {}).keys())
     auto = list((info.get("automatic_captions") or {}).keys())
     spoken = _lang_base(info.get("language"))
+    if not spoken:
+        # yt-dlp often leaves `language` null, but the `*-orig` auto key still names the spoken
+        # language. Without this, step 1 is skipped and step 2 returns the auto track even when
+        # an author track in that same language exists.
+        orig_bases = {_lang_base(t) for t in auto if t.endswith("-orig")}
+        if len(orig_bases) == 1:
+            spoken = orig_bases.pop()
 
     if spoken:
         for tag in manual:
@@ -444,7 +452,7 @@ def pick_sub_lang(info, fallback_priority):
         return preferred[0], True, "original auto-captions (not a translation)"
 
     for tag in fallback_priority:
-        if tag in manual:
+        if tag in manual and tag not in NON_TRANSCRIPT_SUB_TAGS:
             return tag, False, "author subtitles (fallback list)"
     for tag in fallback_priority:
         if tag in auto:
@@ -496,7 +504,9 @@ def vtt_to_transcript(vtt_path, out_path, block_seconds, window=6):
         # and every following non-empty line is swallowed as caption text - which captures the
         # optional cue IDENTIFIER line that precedes a timing line in spec-valid WebVTT (and any
         # mid-file NOTE block) as a bare token in the transcript.
-        if not stripped:
+        # Only a truly empty line ends a cue. YouTube auto-caption cues open with a line holding a
+        # single space; treating that as a terminator drops the new words that follow it.
+        if not line:
             current = None
             continue
         if current is None:
@@ -620,8 +630,8 @@ def cmd_fetch(args):
         print("\n!! ALREADY EXTRACTED - this video id appears in:")
         for p in dupes[:5]:
             print(f"   {p}")
-        print("   (best-effort check: older analyses may carry no url, so a clean "
-              "result is not proof)\n")
+        print("   (best-effort: it only matches analyses that contain the video id, so a "
+              "clean result is not proof)\n")
 
     # ---- subtitles
     if need_transcript:
@@ -630,7 +640,8 @@ def cmd_fetch(args):
         fallback = [x.strip() for x in args.sub_langs.split(",") if x.strip()]
         lang, is_auto, reason = pick_sub_lang(info, fallback)
         if not lang:
-            saw_manual = sorted((info.get("subtitles") or {}).keys())
+            saw_manual = sorted(t for t in (info.get("subtitles") or {})
+                                if t not in NON_TRANSCRIPT_SUB_TAGS)
             saw_origs = sorted(t for t in (info.get("automatic_captions") or {}) if t.endswith("-orig"))
             die(f"no usable subtitle track. manual={saw_manual or 'none'} "
                 f"auto-orig={saw_origs or 'none'}. If a track is listed above, force it with "
@@ -742,11 +753,14 @@ def cmd_frames(args):
         # Filter order is load-bearing: select first, showinfo AFTER it so only KEPT frames are
         # logged, scale last. That is what makes ordinal pts_time <-> scene_NNN pairing possible.
         vf = f"select='gt(scene,{args.threshold})',showinfo,scale={args.width}:-2"
-        proc = subprocess.run(
-            [ffmpeg, "-hide_banner", "-i", video, "-vf", vf,
-             "-fps_mode", "vfr", "-q:v", str(args.quality),
-             os.path.join(scenes, "scene_%03d.jpg")],
-            text=True, capture_output=True)
+        cmd = [ffmpeg, "-hide_banner", "-i", video, "-vf", vf,
+               "-fps_mode", "vfr", "-q:v", str(args.quality),
+               os.path.join(scenes, "scene_%03d.jpg")]
+        proc = subprocess.run(cmd, text=True, capture_output=True)
+        if proc.returncode != 0 and "fps_mode" in proc.stderr:
+            warn("this ffmpeg predates -fps_mode (5.1); retrying with -vsync vfr")
+            cmd[cmd.index("-fps_mode")] = "-vsync"
+            proc = subprocess.run(cmd, text=True, capture_output=True)
         if proc.returncode != 0:
             die(f"ffmpeg scene pass failed (exit {proc.returncode}):\n{proc.stderr[-1200:]}")
 
@@ -905,7 +919,10 @@ def cmd_install(args):
     by_rel = {rel: secs for secs, rel, _ts in items}
     by_secs = {}
     for secs, rel, _ts in items:
-        by_secs.setdefault(int(round(secs)), rel)
+        key = int(round(secs))
+        # Scene frames fire ON the cut; picks are taken after it on purpose, so a pick wins.
+        if key not in by_secs or rel.startswith("pick/"):
+            by_secs[key] = rel
 
     resolved = []  # (seconds, absolute source path)
     for spec in frames_specs:
@@ -988,6 +1005,12 @@ def cmd_install(args):
         total = sum(s for _t, _n, s in installed)
         print(f"· {len(installed)} frame(s) -> {fdir}/ ({human_bytes(total)}, "
               f"{args.frame_width}px)")
+        current = {n for _t, n, _s in installed}
+        stale = sorted(f for f in os.listdir(fdir)
+                       if f.lower().endswith(IMAGE_EXTS) and f not in current)
+        if stale:
+            warn(f"{len(stale)} frame(s) in {fdir} come from an earlier install and were not "
+                 f"re-selected (left in place; delete by hand if unwanted): {', '.join(stale)}")
 
     print()
     print(f"DEST={dest}")
@@ -1005,8 +1028,9 @@ def cmd_install(args):
         # shlex-quoted so a character in a path can never break out of the quoting.
         vault_dir = os.path.join(VAULT_ROOT, "attachments", slug)
         print("\n--- to mirror the frames into the vault ---")
-        print(f"mkdir -p {shlex.quote(vault_dir)} && "
-              f"cp {shlex.quote(os.path.join(dest, 'frames'))}/*.jpg {shlex.quote(vault_dir + os.sep)}")
+        # Name each installed file: a `frames/*.jpg` glob would also copy stale frames.
+        srcs = " ".join(shlex.quote(os.path.join(dest, "frames", n)) for _t, n, _s in installed)
+        print(f"mkdir -p {shlex.quote(vault_dir)} && cp {srcs} {shlex.quote(vault_dir + os.sep)}")
 
     size = dir_size(wd)
     print(f"\n· cache work dir is now {human_bytes(size)} at {wd}")
@@ -1286,8 +1310,8 @@ def render_blocks(lines, base_dir, embed):
         if line.strip().startswith("!["):
             fig = FIGURE_RE.match(line.strip())
             if not fig:
-                # The source silently dropped these: no warning, no non-zero exit, a PDF quietly
-                # missing a figure. A path with a space or trailing text is the usual cause.
+                # Malformed figure lines are an error, never silently dropped - otherwise the PDF
+                # quietly misses a figure. A path with a space or trailing text is the usual cause.
                 die(f'malformed figure line (expected `![ts](path "caption")`):\n  {line.strip()}')
             ts, path, caption = fig.group(1), fig.group(2), fig.group(3) or ""
             html_parts.append(embed(os.path.join(base_dir, path), ts, caption))
@@ -1458,7 +1482,7 @@ def cmd_pdf(args):
     footer = meta.get("footer") or (
         "Original summary written from the video transcript; the screenshots are frames of the "
         "source, referenced by timestamp so they can be verified against it. The video rights "
-        f"belong to {channel}. Internal use.")
+        f"belong to {channel}.")
     meta_bits = []
     for label, key in (("Channel", "channel"), ("Duration", "duration"), ("Published", "published")):
         if meta.get(key):
